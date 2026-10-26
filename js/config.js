@@ -12,6 +12,13 @@ export const CATEGORIES = [
   "Other",
 ];
 
+// Shared database: the Google Apps Script web app attached to the team's
+// Google Sheet. Leave url empty to run fully offline (browser-only).
+export const REMOTE = {
+  url: "https://script.google.com/macros/s/AKfycbwUJ9Twmge6jmuERXx4WMrGznblyCrb0ADfrRHmn86SAsO2puWpk31gdz3gw5zad6W5/exec",
+  autoSyncSeconds: 60,
+};
+
 export const KEYS = {
   theme: "stampdesk.theme",
   assetView: "stampdesk.assetView",

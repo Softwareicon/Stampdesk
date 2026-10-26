@@ -1,6 +1,7 @@
-// Shell: tabs, theme, shortcuts, first-run intro. No sign-in, no server.
-import { KEYS } from "./config.js";
-import { requestPersistence } from "./db.js";
+// Shell: tabs, theme, shortcuts, first-run intro, shared-library sync.
+import { KEYS, REMOTE } from "./config.js";
+import { local, requestPersistence } from "./db.js";
+import * as remote from "./remote.js";
 import { initHistory, onOpenDocument, renderHistory } from "./history.js";
 import { initLibrary, onLibraryChange, renderAssets, renderCompanies, selectCompany } from "./library.js";
 import { refresh, state } from "./store.js";
@@ -47,6 +48,87 @@ function initShell() {
   });
 }
 
+// ------------------------------------------------------------ shared library
+let syncing = null;
+
+function setPill(mode, title) {
+  const pill = $("#syncPill");
+  pill.classList.toggle("is-shared", mode === "shared");
+  pill.classList.toggle("is-syncing", mode === "syncing");
+  pill.classList.toggle("is-error", mode === "error");
+  pill.textContent = { shared: "shared ✓", syncing: "syncing…", error: "sync error", offline: "offline" }[mode];
+  pill.title = title || "";
+}
+
+function rerenderAll() {
+  renderCompanies(); renderAssets(); renderPresets(); renderWorkspaceAssets();
+}
+
+async function askTeamKey(message = "") {
+  const dlg = $("#teamKeyDialog");
+  $("#teamKeyInput").value = "";
+  $("#teamKeyError").hidden = !message;
+  $("#teamKeyError").textContent = message;
+  dlg.showModal();
+  const result = await new Promise((r) => dlg.addEventListener("close", () => r(dlg.returnValue), { once: true }));
+  if (result !== "save" || !$("#teamKeyInput").value.trim()) return false;
+  remote.setTeamKey($("#teamKeyInput").value);
+  try {
+    await remote.ping();
+    return true;
+  } catch (err) {
+    return askTeamKey(err.message);
+  }
+}
+
+async function syncNow({ quiet = false } = {}) {
+  if (!remote.remoteEnabled() || !remote.getTeamKey()) return;
+  if (syncing) return syncing;
+  setPill("syncing", "Syncing with the Google Sheet…");
+  syncing = (async () => {
+    try {
+      const changed = await remote.sync(local);
+      if (changed) {
+        const active = state.activeCompanyId;
+        await refresh("companies", "assets");
+        if (active && !state.companies.some((c) => c.id === active)) selectCompany("");
+        rerenderAll();
+      }
+      setPill("shared", `Shared library — synced ${new Date().toLocaleTimeString()}. Click to sync now.`);
+    } catch (err) {
+      setPill("error", `${err.message} Click to retry.`);
+      if (!quiet) toast(err.message, "error", 7000);
+      if (!remote.getTeamKey()) await connectShared();
+    } finally {
+      syncing = null;
+    }
+  })();
+  return syncing;
+}
+
+async function connectShared() {
+  if (!remote.remoteEnabled()) { setPill("offline", "No server, no account, no internet needed"); return; }
+  if (!remote.getTeamKey() && !(await askTeamKey())) {
+    setPill("offline", "Working offline — click to connect to the shared library.");
+    return;
+  }
+  await syncNow();
+}
+
+function initShared() {
+  $("#syncPill").addEventListener("click", () => {
+    if (!remote.remoteEnabled()) return;
+    if (!remote.getTeamKey()) connectShared(); else syncNow();
+  });
+  document.addEventListener("stampdesk:remote-error", (ev) => {
+    toast(`Not saved: ${ev.detail?.message || "Google Sheet unreachable."}`, "error", 8000);
+    setPill("error", `${ev.detail?.message || ""} Click to retry.`);
+  });
+  if (!remote.remoteEnabled()) return;
+  setInterval(() => { if (!document.hidden) syncNow({ quiet: true }); }, REMOTE.autoSyncSeconds * 1000);
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) syncNow({ quiet: true }); });
+}
+
 async function main() {
   applyTheme(localStorage.getItem(KEYS.theme) || "light");
   state.assetView = localStorage.getItem(KEYS.assetView) || "grid";
@@ -56,6 +138,7 @@ async function main() {
   initLibrary();
   initWorkspace();
   initHistory();
+  initShared();
 
   try {
     await refresh();
@@ -72,10 +155,11 @@ async function main() {
     if (!ok) console.info("Storage is not marked persistent; take a backup regularly.");
   });
 
-  if (!localStorage.getItem(KEYS.seenIntro)) {
+  if (!localStorage.getItem(KEYS.seenIntro) && !remote.remoteEnabled()) {
     $("#introDialog").showModal();
     localStorage.setItem(KEYS.seenIntro, "1");
   }
+  await connectShared();
 }
 
 main().catch((err) => {

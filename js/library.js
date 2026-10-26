@@ -77,7 +77,7 @@ async function companyDialog(company) {
     notes: $("#cNotes").value.trim(),
     createdAt: company?.createdAt || now(),
   };
-  await store.put("companies", record);
+  await withBusy("Saving to the shared sheet…", () => store.put("companies", record));
   await refresh("companies");
   selectCompany(record.id);
   onChanged();
@@ -133,7 +133,7 @@ async function renameAsset(id) {
   const name = prompt("Asset name", asset.name);
   if (name === null) return;
   if (!name.trim()) return toast("Name cannot be empty.", "error");
-  await store.put("assets", { ...asset, name: name.trim(), updatedAt: now() });
+  await withBusy("Saving…", () => store.put("assets", { ...asset, name: name.trim(), updatedAt: now() }));
   await refresh("assets");
   renderAssets();
   toast("Renamed.", "success");
@@ -198,9 +198,9 @@ function downloadAsset(id) {
 
 async function deleteAsset(id) {
   const asset = assetById(id);
-  if (!(await confirmDialog("Delete asset", `“${asset.name}” will be removed from this browser.`))) return;
+  if (!(await confirmDialog("Delete asset", `“${asset.name}” will be removed for everyone on the team.`))) return;
   forget(`asset:${asset.id}:${asset.updatedAt}`);
-  await store.del("assets", id);
+  await withBusy("Deleting…", () => store.del("assets", id));
   await refresh("assets");
   renderCompanies(); renderAssets();
   toast("Asset deleted.", "success");
@@ -288,9 +288,11 @@ export function initLibrary() {
     const c = state.companies.find((x) => x.id === state.activeCompanyId);
     if (!c) return;
     const count = state.assets.filter((a) => a.companyId === c.id).length;
-    if (!(await confirmDialog("Delete company", `“${c.name}” and its ${count} asset(s) will be removed.`))) return;
-    for (const a of state.assets.filter((x) => x.companyId === c.id)) await store.del("assets", a.id);
-    await store.del("companies", c.id);
+    if (!(await confirmDialog("Delete company", `“${c.name}” and its ${count} asset(s) will be removed for everyone on the team.`))) return;
+    await withBusy("Deleting…", async () => {
+      for (const a of state.assets.filter((x) => x.companyId === c.id)) await store.del("assets", a.id);
+      await store.del("companies", c.id);
+    });
     await refresh("companies", "assets");
     selectCompany("");
     toast("Company deleted.", "success");

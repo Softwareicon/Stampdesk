@@ -1,5 +1,8 @@
-// IndexedDB storage — this is the whole "backend".
-// Nothing leaves the browser: no server, no account, no API key.
+// IndexedDB storage in the browser, plus the shared Google Sheet for
+// companies and stamps (see remote.js).
+import * as remote from "./remote.js";
+import { getTeamKey, isShared, remoteEnabled } from "./remote.js";
+
 const DB_NAME = "stampdesk";
 const DB_VERSION = 1;
 export const STORES = ["companies", "assets", "documents", "exports", "presets", "settings"];
@@ -45,7 +48,8 @@ async function tx(store, mode, fn) {
 export const uid = () =>
   (crypto.randomUUID?.() || `${Date.now()}-${Math.random().toString(16).slice(2)}`).replace(/-/g, "");
 
-export const store = {
+// Raw browser storage.
+export const local = {
   get: (name, id) => tx(name, "readonly", (s) => s.get(id)),
   all: (name) => tx(name, "readonly", (s) => s.getAll()),
   put: (name, value) => tx(name, "readwrite", (s) => s.put(value)),
@@ -53,6 +57,33 @@ export const store = {
   byIndex: (name, index, value) => tx(name, "readonly", (s) => s.index(index).getAll(value)),
   clear: (name) => tx(name, "readwrite", (s) => s.clear()),
 };
+
+// What the app uses. Companies and stamps are written to the shared Google
+// Sheet first, so a save only "counts" once the whole team can see it.
+// Without a team key (working offline) writes stay local and are uploaded
+// automatically on the next successful connect.
+const sharedOnline = (name) => isShared(name) && remoteEnabled() && Boolean(getTeamKey());
+export const store = {
+  ...local,
+  async put(name, value) {
+    if (!sharedOnline(name)) return local.put(name, value);
+    try {
+      const previous = await local.get(name, value.id);
+      await remote.push(name, value, previous);
+    } catch (err) { reportRemote(err); throw err; }
+    const flags = name === "assets" ? { _remote: true, _imageAt: value.updatedAt } : { _remote: true };
+    return local.put(name, { ...value, ...flags });
+  },
+  async del(name, id) {
+    if (!sharedOnline(name)) return local.del(name, id);
+    try { await remote.remove(name, id); } catch (err) { reportRemote(err); throw err; }
+    return local.del(name, id);
+  },
+};
+
+function reportRemote(err) {
+  document.dispatchEvent(new CustomEvent("stampdesk:remote-error", { detail: err }));
+}
 
 export async function setting(key, value) {
   if (value === undefined) return (await store.get("settings", key))?.value;
