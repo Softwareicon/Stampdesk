@@ -1,0 +1,311 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>StampDesk — Stamp &amp; Signature Manager</title>
+<meta name="description" content="Store company stamps and signatures and place them on documents. Runs entirely in your browser — no account, no server." />
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🖋️</text></svg>" />
+<link rel="stylesheet" href="css/app.css" />
+</head>
+<body>
+
+<div id="app" class="app">
+  <header class="topbar">
+    <button class="icon-btn only-mobile" id="navToggle" aria-label="Menu">☰</button>
+    <div class="brand">
+      <div class="logo-mark">SD</div>
+      <span>StampDesk</span>
+      <span class="pill offline-pill" title="No server, no account, no internet needed">offline</span>
+    </div>
+
+    <nav class="tabs" role="tablist">
+      <button class="tab is-active" data-view="library" role="tab">Stamp Library</button>
+      <button class="tab" data-view="workspace" role="tab">Place on Document</button>
+      <button class="tab" data-view="history" role="tab">History &amp; Backup</button>
+    </nav>
+
+    <div class="topbar-right">
+      <button class="icon-btn" id="themeBtn" title="Toggle theme (T)">◐</button>
+      <button class="btn btn-ghost btn-sm" id="shortcutsBtn">Shortcuts</button>
+      <button class="btn btn-ghost btn-sm" id="aboutBtn">How it works</button>
+    </div>
+  </header>
+
+  <!-- ─────────── Tab 1: library ─────────── -->
+  <main class="view" id="view-library">
+    <aside class="side" id="librarySide">
+      <div class="side-head">
+        <h2>Companies</h2>
+        <button class="btn btn-ghost btn-sm" id="addCompanyBtn">+ New</button>
+      </div>
+      <ul class="company-list" id="companyList"></ul>
+      <div class="side-foot">
+        <button class="btn btn-ghost btn-sm btn-block" id="editCompanyBtn">Edit company</button>
+        <button class="btn btn-ghost btn-sm btn-block danger" id="deleteCompanyBtn">Delete company</button>
+      </div>
+    </aside>
+
+    <section class="content">
+      <div class="content-head">
+        <div>
+          <h2 id="libraryTitle">All assets</h2>
+          <p class="muted" id="librarySubtitle">Stamps and signatures saved in this browser.</p>
+        </div>
+        <button class="btn btn-primary" id="addAssetBtn">Upload stamp / signature</button>
+      </div>
+
+      <div class="filter-bar">
+        <input id="assetSearch" class="search" type="search" placeholder="Search by name or description…" />
+        <select id="categoryFilter" class="select"></select>
+        <div class="seg" id="assetViewToggle">
+          <button class="is-active" data-mode="grid">Grid</button>
+          <button data-mode="list">List</button>
+        </div>
+      </div>
+
+      <div id="assetGrid" class="asset-grid"></div>
+      <div id="assetEmpty" class="empty" hidden>
+        <div class="empty-art">🖋️</div>
+        <h3>No stamps yet</h3>
+        <p>Take a photo or scan of your stamp or signature on white paper and upload it. StampDesk removes the paper background so only the ink is left.</p>
+        <button class="btn btn-primary" data-action="add-asset">Upload your first stamp</button>
+      </div>
+    </section>
+  </main>
+
+  <!-- ─────────── Tab 2: workspace ─────────── -->
+  <main class="view" id="view-workspace" hidden>
+    <aside class="side" id="workspaceSide">
+      <div class="side-head"><h2>Assets</h2></div>
+      <div class="side-filters">
+        <select id="wsCompany" class="select"></select>
+        <select id="wsCategory" class="select"></select>
+        <input id="wsSearch" class="search" type="search" placeholder="Search assets…" />
+      </div>
+      <div id="wsAssetList" class="ws-asset-list"></div>
+      <p class="hint pad">Drag an asset onto the page, or click it and then click where it should go.</p>
+    </aside>
+
+    <section class="content workspace">
+      <div id="dropZone" class="dropzone">
+        <div class="dropzone-inner">
+          <div class="empty-art">📄</div>
+          <h3>Drop a document here</h3>
+          <p>PDF, JPG or PNG — up to 60 MB. The file never leaves your computer.</p>
+          <button class="btn btn-primary" id="pickDocBtn">Choose file</button>
+          <input id="docInput" type="file" accept=".pdf,.png,.jpg,.jpeg,.webp" hidden />
+          <p class="hint">Word file? In Word use File → Save as → PDF, then drop that PDF here.</p>
+        </div>
+      </div>
+
+      <div id="editor" class="editor" hidden>
+        <div class="toolbar">
+          <div class="toolbar-group">
+            <strong id="docName" class="doc-name">document.pdf</strong>
+            <span class="pill" id="docMeta">—</span>
+          </div>
+          <div class="toolbar-group">
+            <button class="icon-btn" id="prevPage" title="Previous page">‹</button>
+            <span class="page-indicator"><input id="pageInput" type="number" min="1" value="1" /> / <span id="pageTotal">1</span></span>
+            <button class="icon-btn" id="nextPage" title="Next page">›</button>
+          </div>
+          <div class="toolbar-group">
+            <button class="icon-btn" id="zoomOut" title="Zoom out (−)">−</button>
+            <span class="pill" id="zoomLabel">100%</span>
+            <button class="icon-btn" id="zoomIn" title="Zoom in (+)">+</button>
+            <button class="btn btn-ghost btn-sm" id="fitPage">Fit</button>
+          </div>
+          <div class="toolbar-group">
+            <button class="icon-btn" id="undoBtn" title="Undo (Ctrl+Z)">↶</button>
+            <button class="icon-btn" id="redoBtn" title="Redo (Ctrl+Y)">↷</button>
+            <button class="btn btn-ghost btn-sm" id="clearBtn">Clear</button>
+          </div>
+          <div class="toolbar-group right">
+            <label class="check" title="Flatten the pages so the stamp cannot be dragged out in a PDF reader">
+              <input type="checkbox" id="flattenChk" /> Flatten
+            </label>
+            <button class="btn btn-ghost btn-sm" id="closeDocBtn">Close</button>
+            <button class="btn btn-primary" id="exportBtn">Export PDF</button>
+          </div>
+        </div>
+
+        <div class="editor-body">
+          <div class="thumbs" id="thumbs"></div>
+          <div class="canvas-scroll" id="canvasScroll">
+            <div class="page-stage" id="pageStage">
+              <canvas id="pageCanvas"></canvas>
+              <div class="overlay" id="overlay"></div>
+            </div>
+          </div>
+          <div class="inspector" id="inspector">
+            <div class="inspector-empty" id="inspectorEmpty">
+              <p class="muted">Select a placed stamp to fine-tune it.</p>
+            </div>
+            <div id="inspectorBody" hidden>
+              <div class="inspector-preview"><img id="inspectorImg" alt="" /></div>
+              <strong id="inspectorName">—</strong>
+              <div class="num-grid">
+                <label>X (pt)<input type="number" id="inX" step="0.5" /></label>
+                <label>Y (pt)<input type="number" id="inY" step="0.5" /></label>
+                <label>Width<input type="number" id="inW" step="0.5" min="4" /></label>
+                <label>Height<input type="number" id="inH" step="0.5" min="4" /></label>
+              </div>
+              <label class="slider">Rotation <span id="rotVal">0°</span>
+                <input type="range" id="inRot" min="0" max="359" step="1" />
+              </label>
+              <label class="slider">Opacity <span id="opVal">100%</span>
+                <input type="range" id="inOp" min="10" max="100" step="1" />
+              </label>
+              <label class="check"><input type="checkbox" id="lockAspect" checked /> Lock aspect ratio</label>
+              <div class="inspector-actions">
+                <button class="btn btn-ghost btn-sm" id="centerH">Center ↔</button>
+                <button class="btn btn-ghost btn-sm" id="dupBtn">Duplicate</button>
+                <button class="btn btn-ghost btn-sm" id="applyAllBtn">All pages</button>
+                <button class="btn btn-ghost btn-sm danger" id="delPlacementBtn">Delete</button>
+              </div>
+              <button class="btn btn-ghost btn-sm btn-block" id="savePresetBtn">Save as preset</button>
+            </div>
+
+            <div class="presets">
+              <h4>Presets</h4>
+              <ul id="presetList" class="preset-list"></ul>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- ─────────── Tab 3: history & backup ─────────── -->
+  <main class="view" id="view-history" hidden>
+    <section class="content">
+      <div class="content-head">
+        <div>
+          <h2>History &amp; backup</h2>
+          <p class="muted" id="storageInfo">Everything is stored in this browser.</p>
+        </div>
+        <input id="historySearch" class="search" type="search" placeholder="Search documents…" />
+      </div>
+
+      <div class="panel backup-panel">
+        <h3>Backup</h3>
+        <p class="muted">Your library lives in this browser only. Clearing site data, or switching to another
+          computer or browser, loses it — so download a backup after adding stamps, and restore it on the other device.</p>
+        <div class="backup-actions">
+          <button class="btn btn-primary btn-sm" id="backupBtn">Download backup</button>
+          <button class="btn btn-ghost btn-sm" id="restoreBtn">Restore from backup</button>
+          <input id="restoreInput" type="file" accept="application/json,.json" hidden />
+          <label class="check"><input type="checkbox" id="backupDocs" /> Include documents (large file)</label>
+          <button class="btn btn-ghost btn-sm danger" id="wipeBtn">Erase everything</button>
+        </div>
+      </div>
+
+      <div class="history-grid">
+        <div class="panel">
+          <h3>Documents</h3>
+          <ul id="docHistory" class="history-list"></ul>
+        </div>
+        <div class="panel">
+          <h3>Exports</h3>
+          <ul id="exportHistory" class="history-list"></ul>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="legal-bar">
+    A placed stamp or signature is a visual mark only — it is not a cryptographic digital
+    signature and does not by itself establish authenticity or legal validity.
+  </footer>
+</div>
+
+<!-- ───────────────────────── Dialogs ───────────────────────── -->
+<dialog id="introDialog" class="dialog">
+  <form method="dialog">
+    <h3>How StampDesk works</h3>
+    <ol class="steps">
+      <li><strong>Everything runs in this browser.</strong> No account, no server, no API key, no subscription. Your stamps and documents never leave this computer.</li>
+      <li><strong>Add a company</strong>, then upload a photo or scan of your stamp or signature. The white paper is removed automatically, leaving only the ink.</li>
+      <li><strong>Open a PDF</strong> and drag the stamp exactly where it belongs. Resize, rotate, set opacity, or type exact coordinates.</li>
+      <li><strong>Export</strong> — the stamped PDF is built here and downloads straight to your computer.</li>
+      <li><strong>Take a backup</strong> from the History tab so you can move your library to another computer.</li>
+    </ol>
+    <p class="legal-note">This places an image on a page. It is not a cryptographic digital signature (DSC / PAdES) and does not by itself establish legal validity.</p>
+    <div class="dialog-actions"><button class="btn btn-primary" value="ok" type="submit">Start</button></div>
+  </form>
+</dialog>
+
+<dialog id="companyDialog" class="dialog">
+  <form method="dialog" id="companyForm">
+    <h3 id="companyDialogTitle">New company</h3>
+    <div class="field"><label for="cName">Company name</label><input id="cName" required maxlength="200" /></div>
+    <div class="field"><label for="cGstin">GSTIN / registration (optional)</label><input id="cGstin" maxlength="32" /></div>
+    <div class="field"><label for="cNotes">Notes</label><textarea id="cNotes" rows="3" maxlength="2000"></textarea></div>
+    <div class="dialog-actions">
+      <button class="btn btn-ghost" value="cancel" type="submit">Cancel</button>
+      <button class="btn btn-primary" id="companySave" value="save" type="submit">Save</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="assetDialog" class="dialog">
+  <form id="assetForm">
+    <h3>Upload stamp / signature</h3>
+    <div class="upload-drop" id="assetDrop">
+      <img id="assetPreview" alt="" hidden />
+      <div id="assetDropText">
+        <strong>Drop an image here</strong>
+        <span class="hint">PNG, JPG or WEBP · photo of a stamp on white paper works fine</span>
+      </div>
+      <input id="assetFile" type="file" accept="image/*" hidden />
+    </div>
+    <div class="field"><label for="aName">Asset name</label><input id="aName" required maxlength="200" placeholder="e.g. Authorised Signatory — Director" /></div>
+    <div class="row">
+      <div class="field"><label for="aCompany">Company</label><select id="aCompany" class="select"></select></div>
+      <div class="field"><label for="aCategory">Category</label><select id="aCategory" class="select"></select></div>
+    </div>
+    <div class="field"><label for="aDesc">Description (optional)</label><input id="aDesc" maxlength="2000" /></div>
+    <label class="check"><input type="checkbox" id="aStrip" checked /> Remove the paper background automatically</label>
+    <div class="dialog-actions">
+      <button class="btn btn-ghost" type="button" data-close>Cancel</button>
+      <button class="btn btn-primary" type="submit" id="assetSave">Save asset</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="confirmDialog" class="dialog">
+  <form method="dialog">
+    <h3 id="confirmTitle">Are you sure?</h3>
+    <p id="confirmBody" class="muted"></p>
+    <div class="dialog-actions">
+      <button class="btn btn-ghost" value="no" type="submit">Cancel</button>
+      <button class="btn btn-danger" value="yes" type="submit" id="confirmYes">Delete</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="shortcutsDialog" class="dialog">
+  <form method="dialog">
+    <h3>Keyboard shortcuts</h3>
+    <ul class="shortcut-list">
+      <li><kbd>Ctrl</kbd>+<kbd>Z</kbd> <span>Undo</span></li>
+      <li><kbd>Ctrl</kbd>+<kbd>Y</kbd> <span>Redo</span></li>
+      <li><kbd>Ctrl</kbd>+<kbd>D</kbd> <span>Duplicate selected</span></li>
+      <li><kbd>Delete</kbd> <span>Remove selected placement</span></li>
+      <li><kbd>↑ ↓ ← →</kbd> <span>Nudge 1 pt (<kbd>Shift</kbd> = 10 pt)</span></li>
+      <li><kbd>+</kbd> / <kbd>−</kbd> <span>Zoom in / out</span></li>
+      <li><kbd>Page ↑</kbd> / <kbd>Page ↓</kbd> <span>Change page</span></li>
+      <li><kbd>Ctrl</kbd>+<kbd>S</kbd> <span>Export PDF</span></li>
+      <li><kbd>T</kbd> <span>Light / dark theme</span></li>
+    </ul>
+    <div class="dialog-actions"><button class="btn btn-primary" value="ok" type="submit">Got it</button></div>
+  </form>
+</dialog>
+
+<div id="toasts" class="toasts" aria-live="polite"></div>
+<div id="progress" class="progress" hidden><div class="progress-bar"></div><span id="progressLabel">Working…</span></div>
+
+<script type="module" src="js/app.js"></script>
+</body>
+</html>

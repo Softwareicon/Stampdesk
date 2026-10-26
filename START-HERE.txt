@@ -1,0 +1,44 @@
+StampDesk — offline stamp & signature manager
+=============================================
+
+No account. No server. No API key. Nothing to pay for.
+Everything runs inside your browser; your files never leave this computer.
+
+HOW TO OPEN
+-----------
+Easiest:  double-click  index.html
+
+If your browser blocks it, open a terminal/command prompt in this folder and run:
+
+    python3 -m http.server 8080        (Windows:  py -m http.server 8080)
+
+then open   http://127.0.0.1:8080
+
+To get a free link you can open from any machine, upload this whole folder to a
+GitHub repository and switch on Settings -> Pages -> Deploy from a branch.
+Nothing to configure - there is no backend to point at.
+
+FIRST FIVE MINUTES
+------------------
+1. Stamp Library -> "+ New" -> add your company.
+2. "Upload stamp / signature" -> a photo or scan of your stamp on white paper.
+   Leave "Remove the paper background" ticked.
+3. "Place on Document" -> drop a PDF -> drag the stamp where it belongs.
+4. "Export PDF" -> the stamped file downloads.
+5. "History & Backup" -> "Download backup" and keep that file safe.
+
+Practice files are in the samples/ folder.
+
+TWO THINGS TO KNOW
+------------------
+* Word files: save them as PDF from Word first (File -> Save as -> PDF), then
+  drop the PDF here. .docx conversion needs a server, which this version does
+  not have.
+* Your library lives in this browser only. Clearing site data, or moving to
+  another computer or browser, starts you empty - so download a backup from the
+  History tab and restore it on the other machine.
+
+A placed stamp is a visual mark. It is not a cryptographic digital signature
+(DSC / PAdES) and does not by itself establish legal validity.
+
+Full details: README.md and docs/HOW-IT-WORKS.md
