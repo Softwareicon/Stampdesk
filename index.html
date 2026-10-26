@@ -16,7 +16,7 @@
     <div class="brand">
       <div class="logo-mark">SD</div>
       <span>StampDesk</span>
-      <span class="pill offline-pill" title="No server, no account, no internet needed">offline</span>
+      <button type="button" class="pill offline-pill" id="syncPill" title="No server, no account, no internet needed">offline</button>
     </div>
 
     <nav class="tabs" role="tablist">
@@ -233,6 +233,19 @@
     </ol>
     <p class="legal-note">This places an image on a page. It is not a cryptographic digital signature (DSC / PAdES) and does not by itself establish legal validity.</p>
     <div class="dialog-actions"><button class="btn btn-primary" value="ok" type="submit">Start</button></div>
+  </form>
+</dialog>
+
+<dialog id="teamKeyDialog" class="dialog">
+  <form method="dialog" id="teamKeyForm">
+    <h3>Connect to the shared library</h3>
+    <p class="hint">Companies and stamps are shared with your whole team through the company Google Sheet. Enter the team key you were given (ask the admin if you don't have it).</p>
+    <div class="field"><label for="teamKeyInput">Team key</label><input id="teamKeyInput" autocomplete="off" spellcheck="false" placeholder="SD-XXXXXXXXXXXX" /></div>
+    <p class="hint" id="teamKeyError" hidden></p>
+    <div class="dialog-actions">
+      <button class="btn btn-ghost" value="cancel" type="submit">Work offline</button>
+      <button class="btn btn-primary" value="save" type="submit">Connect</button>
+    </div>
   </form>
 </dialog>
 
