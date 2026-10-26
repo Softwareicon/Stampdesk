@@ -417,3 +417,12 @@ kbd {
 .backup-actions { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
 .steps { margin: 0 0 14px; padding-left: 20px; display: grid; gap: 9px; color: var(--ink-2); font-size: 13.5px; }
 .steps strong { color: var(--ink); }
+
+/* shared-library status pill */
+button.offline-pill { cursor: pointer; font: inherit; font-size: 12px; }
+.offline-pill.is-shared { background: #e7f6ec; color: #1e7b3c; }
+.offline-pill.is-syncing { opacity: .7; }
+.offline-pill.is-error { background: #fdecec; color: #b42318; }
+[data-theme="dark"] .offline-pill.is-shared { background: #12351f; color: #7ad69a; }
+[data-theme="dark"] .offline-pill.is-error { background: #3a1414; color: #f49b9b; }
+#teamKeyError { color: #b42318; }
