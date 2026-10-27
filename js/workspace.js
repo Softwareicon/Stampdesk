@@ -4,6 +4,7 @@ import { store } from "./db.js";
 import { DocumentError, getPdfjs, stampPdf, thumbnail, toPdf } from "./pdfops.js";
 import { assetById, assetUrl, newId, now, objectUrl, refresh, state } from "./store.js";
 import { $, $$, confirmDialog, debounce, el, fmt, toast, withBusy } from "./ui.js";
+import { ALIGN_GRID, HANDLES, UNITS, alignRect, fromUnit, getUnit, isCorner, resizeRect, setUnit, toUnit } from "./geometry.js";
 
 let doc = null;             // the stored document record
 let pdfDoc = null;          // pdf.js handle
@@ -15,6 +16,8 @@ let activeAssetId = null;
 let undoStack = [];
 let redoStack = [];
 let seq = 0;
+let unit = getUnit();
+let marginPt = 28.35;        // 10 mm default gap from the page edge when aligning
 
 const stage = () => $("#pageStage");
 const overlay = () => $("#overlay");
@@ -109,13 +112,19 @@ function renderOverlay() {
       style: `left:${p.x * s}px; top:${p.y * s}px; width:${p.w * s}px; height:${p.h * s}px;
               transform: rotate(${p.rot}deg); opacity:${p.opacity};`,
     }, [el("img", { src: asset ? assetUrl(asset) : "", alt: "" })]);
-    for (const h of ["nw", "ne", "sw", "se", "rot"]) node.append(el("span", { class: "handle", "data-h": h }));
+    for (const h of HANDLES) node.append(el("span", { class: "handle", "data-h": h, title: handleTitle(h) }));
     box.append(node);
   }
   syncInspector();
 }
 
 const selected = () => placements.find((p) => p.id === selectedId) || null;
+
+function handleTitle(h) {
+  if (h === "rot") return "Drag to rotate (Shift snaps to 15°)";
+  if (isCorner(h)) return "Drag to resize";
+  return h === "n" || h === "s" ? "Drag to change height only" : "Drag to change width only";
+}
 
 function syncInspector() {
   const p = selected();
@@ -125,10 +134,11 @@ function syncInspector() {
   const asset = assetById(p.assetId);
   $("#inspectorName").textContent = asset?.name || "Asset";
   if (asset) $("#inspectorImg").src = assetUrl(asset);
-  $("#inX").value = p.x.toFixed(1);
-  $("#inY").value = p.y.toFixed(1);
-  $("#inW").value = p.w.toFixed(1);
-  $("#inH").value = p.h.toFixed(1);
+  $("#inX").value = toUnit(p.x, unit);
+  $("#inY").value = toUnit(p.y, unit);
+  $("#inW").value = toUnit(p.w, unit);
+  $("#inH").value = toUnit(p.h, unit);
+  $("#marginIn").value = toUnit(marginPt, unit);
   $("#inRot").value = String(Math.round(p.rot));
   $("#rotVal").textContent = `${Math.round(p.rot)}°`;
   $("#inOp").value = String(Math.round(p.opacity * 100));
@@ -208,9 +218,13 @@ function clientToPt(ev) {
 
 function initGestures() {
   const box = overlay();
+  // A press on a stamp (to move/resize it) must not also count as a click on
+  // the page — that used to drop a second copy of the stamp.
+  let pressedStamp = false;
 
   box.addEventListener("pointerdown", (ev) => {
     const node = ev.target.closest(".placement");
+    pressedStamp = Boolean(node);
     if (!node) { selectedId = null; renderOverlay(); return; }
     const p = placements.find((x) => x.id === node.dataset.id);
     if (!p) return;
@@ -222,7 +236,6 @@ function initGestures() {
     const orig = { ...p };
     const geo = pageGeom();
     const lock = $("#lockAspect").checked;
-    const aspect = orig.w / orig.h;
     let moved = false;
 
     const live = $(`.placement[data-id="${p.id}"]`, box) || node;
@@ -246,14 +259,7 @@ function initGestures() {
         if (e.shiftKey) deg = Math.round(deg / 15) * 15;
         p.rot = ((Math.round(deg) % 360) + 360) % 360;
       } else {
-        let { x, y, w, h } = orig;
-        if (handle.includes("e")) w = orig.w + dx;
-        if (handle.includes("s")) h = orig.h + dy;
-        if (handle.includes("w")) { w = orig.w - dx; x = orig.x + dx; }
-        if (handle.includes("n")) { h = orig.h - dy; y = orig.y + dy; }
-        w = Math.max(8, w); h = Math.max(8, h);
-        if (lock) { h = w / aspect; if (handle.includes("n")) y = orig.y + (orig.h - h); }
-        Object.assign(p, { x, y, w, h });
+        Object.assign(p, resizeRect(orig, handle, dx, dy, { lock }));
       }
       const s = scale();
       live.style.left = `${p.x * s}px`;
@@ -276,6 +282,7 @@ function initGestures() {
   });
 
   box.addEventListener("click", (ev) => {
+    if (pressedStamp) { pressedStamp = false; return; }
     if (ev.target.closest(".placement") || !activeAssetId) return;
     const pt = clientToPt(ev);
     addPlacement(activeAssetId, pt.x, pt.y);
@@ -528,8 +535,8 @@ export function initWorkspace() {
   for (const [id, key] of Object.entries({ inX: "x", inY: "y", inW: "w", inH: "h" })) {
     $(`#${id}`).addEventListener("change", (ev) => {
       const p = selected(); if (!p) return;
-      const v = Number(ev.target.value);
-      if (!Number.isFinite(v)) return;
+      if (ev.target.value === "" || !Number.isFinite(Number(ev.target.value))) return syncInspector();
+      const v = fromUnit(ev.target.value, unit);
       const patch = { [key]: key === "w" || key === "h" ? Math.max(4, v) : v };
       if ($("#lockAspect").checked && (key === "w" || key === "h")) {
         const aspect = p.w / p.h;
@@ -538,6 +545,41 @@ export function initWorkspace() {
       updateSelected(patch);
     });
   }
+  // units, alignment, nudging
+  const fillUnits = () => {
+    $("#unitSel").value = unit;
+    $$(".unit-label").forEach((n) => { n.textContent = UNITS[unit].label; });
+    for (const id of ["inX", "inY", "inW", "inH", "marginIn"]) $(`#${id}`).step = String(UNITS[unit].step);
+  };
+  $("#unitSel").replaceChildren(...Object.keys(UNITS).map((u) => el("option", { value: u, text: UNITS[u].label })));
+  $("#unitSel").addEventListener("change", (ev) => { unit = ev.target.value; setUnit(unit); fillUnits(); syncInspector(); });
+  fillUnits();
+  $("#marginIn").addEventListener("change", (ev) => {
+    const v = Number(ev.target.value);
+    if (Number.isFinite(v) && v >= 0) marginPt = fromUnit(v, unit);
+  });
+  $("#alignGrid").replaceChildren(...ALIGN_GRID.map(([code, glyph]) => el("button", {
+    type: "button", class: "align-btn", text: glyph, title: alignTitle(code),
+    onclick: () => {
+      const p = selected(); if (!p) return;
+      const r = alignRect(p, pageGeom(p.page), code, marginPt);
+      updateSelected({ x: r.x, y: r.y });
+    },
+  })));
+  $$("[data-nudge]").forEach((b) => b.addEventListener("click", () => {
+    const p = selected(); if (!p) return;
+    const [dx, dy] = b.dataset.nudge.split(",").map(Number);
+    const step = UNITS[unit].perUnit * (unit === "pt" ? 1 : unit === "mm" ? 1 : unit === "cm" ? 0.1 : 0.05);
+    updateSelected({ x: p.x + dx * step, y: p.y + dy * step });
+  }));
+  $("#fitWidthBtn").addEventListener("click", () => {
+    const p = selected(); if (!p) return;
+    const asset = assetById(p.assetId);
+    if (!asset?.width || !asset?.height) return;
+    updateSelected({ h: p.w * (asset.height / asset.width) });
+    toast("Original proportions restored.", "success");
+  });
+
   $("#inRot").addEventListener("input", (ev) => {
     const p = selected(); if (!p) return;
     p.rot = Number(ev.target.value);
@@ -561,6 +603,12 @@ export function initWorkspace() {
 
   initGestures();
   window.addEventListener("resize", debounce(() => { if (doc) renderOverlay(); }, 180));
+}
+
+function alignTitle(code) {
+  const v = { t: "top", m: "middle", b: "bottom" }[code[0]];
+  const h = { l: "left", c: "centre", r: "right" }[code[1]];
+  return code === "mc" ? "Centre of the page" : `Align ${v} ${h} (uses the margin)`;
 }
 
 export function workspaceShortcut(ev) {

@@ -2,6 +2,7 @@
 import { KEYS, REMOTE } from "./config.js";
 import { local, requestPersistence } from "./db.js";
 import * as remote from "./remote.js";
+import { initBulk, onBulkShown, renderBulkAssets } from "./bulk.js";
 import { initHistory, onOpenDocument, renderHistory } from "./history.js";
 import { initLibrary, onLibraryChange, renderAssets, renderCompanies, selectCompany } from "./library.js";
 import { refresh, state } from "./store.js";
@@ -18,10 +19,11 @@ const toggleTheme = () => applyTheme(document.documentElement.dataset.theme === 
 
 function showView(name) {
   currentView = name;
-  for (const v of ["library", "workspace", "history"]) $(`#view-${v}`).hidden = v !== name;
+  for (const v of ["library", "workspace", "bulk", "history"]) $(`#view-${v}`).hidden = v !== name;
   $$(".tab").forEach((t) => t.classList.toggle("is-active", t.dataset.view === name));
   if (name === "history") renderHistory().catch((e) => toast(e.message, "error"));
   if (name === "workspace") renderWorkspaceAssets();
+  if (name === "bulk") onBulkShown();
 }
 
 function initShell() {
@@ -30,14 +32,14 @@ function initShell() {
   $("#shortcutsBtn").addEventListener("click", () => $("#shortcutsDialog").showModal());
   $("#aboutBtn").addEventListener("click", () => $("#introDialog").showModal());
   $("#navToggle").addEventListener("click", () => {
-    const side = currentView === "library" ? $("#librarySide") : $("#workspaceSide");
-    side?.classList.toggle("is-collapsed");
+    const side = { library: "#librarySide", workspace: "#workspaceSide", bulk: "#bulkSide" }[currentView];
+    if (side) $(side)?.classList.toggle("is-collapsed");
   });
 
-  onLibraryChange(() => renderWorkspaceAssets());
+  onLibraryChange(() => { renderWorkspaceAssets(); renderBulkAssets(); });
   onOpenDocument(() => showView("workspace"));
   document.addEventListener("stampdesk:restored", () => {
-    renderCompanies(); renderAssets(); renderPresets(); renderWorkspaceAssets();
+    renderCompanies(); renderAssets(); renderPresets(); renderWorkspaceAssets(); renderBulkAssets();
   });
 
   document.addEventListener("keydown", (ev) => {
@@ -61,7 +63,7 @@ function setPill(mode, title) {
 }
 
 function rerenderAll() {
-  renderCompanies(); renderAssets(); renderPresets(); renderWorkspaceAssets();
+  renderCompanies(); renderAssets(); renderPresets(); renderWorkspaceAssets(); renderBulkAssets();
 }
 
 async function askTeamKey(message = "") {
@@ -138,6 +140,7 @@ async function main() {
   initLibrary();
   initWorkspace();
   initHistory();
+  initBulk();
   initShared();
 
   try {
