@@ -22,6 +22,7 @@
     <nav class="tabs" role="tablist">
       <button class="tab is-active" data-view="library" role="tab">Stamp Library</button>
       <button class="tab" data-view="workspace" role="tab">Place on Document</button>
+      <button class="tab" data-view="bulk" role="tab">Bulk Stamp <span class="ai-badge">AI</span></button>
       <button class="tab" data-view="history" role="tab">History &amp; Backup</button>
     </nav>
 
@@ -145,19 +146,42 @@
             <div id="inspectorBody" hidden>
               <div class="inspector-preview"><img id="inspectorImg" alt="" /></div>
               <strong id="inspectorName">—</strong>
-              <div class="num-grid">
-                <label>X (pt)<input type="number" id="inX" step="0.5" /></label>
-                <label>Y (pt)<input type="number" id="inY" step="0.5" /></label>
-                <label>Width<input type="number" id="inW" step="0.5" min="4" /></label>
-                <label>Height<input type="number" id="inH" step="0.5" min="4" /></label>
+              <div class="unit-row">
+                <span class="mini-label">Position &amp; size</span>
+                <select id="unitSel" class="select select-sm" title="Units for position and size"></select>
               </div>
+              <div class="num-grid">
+                <label><span>X from left (<span class="unit-label">mm</span>)</span><input type="number" id="inX" step="0.5" /></label>
+                <label><span>Y from top (<span class="unit-label">mm</span>)</span><input type="number" id="inY" step="0.5" /></label>
+                <label><span>Width (<span class="unit-label">mm</span>)</span><input type="number" id="inW" step="0.5" min="1" /></label>
+                <label><span>Height (<span class="unit-label">mm</span>)</span><input type="number" id="inH" step="0.5" min="1" /></label>
+              </div>
+              <p class="hint tiny">Corner handles resize; the middle handles on each side stretch only the width or only the height.</p>
               <label class="slider">Rotation <span id="rotVal">0°</span>
                 <input type="range" id="inRot" min="0" max="359" step="1" />
               </label>
               <label class="slider">Opacity <span id="opVal">100%</span>
                 <input type="range" id="inOp" min="10" max="100" step="1" />
               </label>
-              <label class="check"><input type="checkbox" id="lockAspect" checked /> Lock aspect ratio</label>
+              <label class="check"><input type="checkbox" id="lockAspect" checked /> Lock aspect ratio (corners &amp; typed sizes)</label>
+              <button class="btn btn-ghost btn-sm btn-block" id="fitWidthBtn" type="button">Restore original proportions</button>
+
+              <div class="align-box">
+                <span class="mini-label">Align on page</span>
+                <div class="align-row">
+                  <div class="align-grid" id="alignGrid"></div>
+                  <div class="align-side">
+                    <label class="margin-field"><span>Margin (<span class="unit-label">mm</span>)</span><input type="number" id="marginIn" min="0" step="0.5" /></label>
+                    <div class="nudge-pad" title="Nudge by 1 unit (arrow keys also work; Shift = 10 pt)">
+                      <button type="button" data-nudge="0,-1">↑</button>
+                      <button type="button" data-nudge="-1,0">←</button>
+                      <button type="button" data-nudge="1,0">→</button>
+                      <button type="button" data-nudge="0,1">↓</button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
               <div class="inspector-actions">
                 <button class="btn btn-ghost btn-sm" id="centerH">Center ↔</button>
                 <button class="btn btn-ghost btn-sm" id="dupBtn">Duplicate</button>
@@ -172,6 +196,156 @@
               <ul id="presetList" class="preset-list"></ul>
             </div>
           </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- ─────────── Tab: bulk stamping ─────────── -->
+  <main class="view" id="view-bulk" hidden>
+    <aside class="side bulk-side" id="bulkSide">
+      <div class="bulk-step">
+        <h4><span class="step-no">1</span> PDF files</h4>
+        <div class="bulk-drop" id="bulkDrop">
+          <span>Drop PDFs here, or</span>
+          <button class="btn btn-ghost btn-sm" id="bulkPick" type="button">Choose files</button>
+          <input id="bulkInput" type="file" accept=".pdf,application/pdf" multiple hidden />
+        </div>
+        <ul id="bulkFiles" class="bulk-files"></ul>
+        <div class="bulk-files-foot">
+          <span id="bulkFilesInfo" class="hint tiny"></span>
+          <button class="link-btn" id="bulkClear" type="button" hidden>Remove all</button>
+        </div>
+      </div>
+
+      <div class="bulk-step">
+        <h4><span class="step-no">2</span> Stamp</h4>
+        <div class="bulk-asset-row">
+          <img id="bulkAssetImg" alt="" hidden />
+          <select id="bulkAsset" class="select"></select>
+        </div>
+        <label class="slider">Opacity <span id="bulkOpVal">100%</span>
+          <input type="range" id="bulkOp" min="10" max="100" step="1" value="100" />
+        </label>
+        <label class="slider">Rotation <span id="bulkRotVal">0°</span>
+          <input type="range" id="bulkRot" min="0" max="359" step="1" value="0" />
+        </label>
+      </div>
+
+      <div class="bulk-step">
+        <h4><span class="step-no">3</span> Pages</h4>
+        <select id="bulkPages" class="select">
+          <option value="all">Every page</option>
+          <option value="first">First page only</option>
+          <option value="last">Last page only</option>
+          <option value="custom">Custom pages…</option>
+        </select>
+        <input id="bulkRange" class="search" placeholder="e.g. 1, 3-5, last" hidden />
+      </div>
+
+      <div class="bulk-step">
+        <h4><span class="step-no">4</span> Placement</h4>
+        <label class="mode-card">
+          <input type="radio" name="bulkMode" value="smart" checked />
+          <span><strong>✨ Smart placement (AI)</strong>
+          <small>Finds a text such as “Authorised Signatory” on each page and puts the stamp at the same spot next to it — even if it moves between bills.</small></span>
+        </label>
+        <label class="mode-card">
+          <input type="radio" name="bulkMode" value="fixed" />
+          <span><strong>Same position on every page</strong>
+          <small>Exactly the spot you set on the sample, measured from the nearest page edges.</small></span>
+        </label>
+        <div id="smartBox" class="smart-box">
+          <label class="field-label" for="anchorText">Find this text</label>
+          <div class="anchor-row">
+            <input id="anchorText" class="search" placeholder="Authorised Signatory" />
+            <button class="btn btn-ghost btn-sm" id="detectBtn" type="button" title="Read the sample file and suggest where stamps go">✨ Detect</button>
+          </div>
+          <div id="anchorChips" class="chips"></div>
+          <label class="field-label" for="smartMissing">If the text isn't on a page</label>
+          <select id="smartMissing" class="select">
+            <option value="skip">Skip that page</option>
+            <option value="fixed">Use the fixed position instead</option>
+          </select>
+          <p id="anchorStatus" class="hint tiny"></p>
+        </div>
+      </div>
+
+      <div class="bulk-step bulk-go">
+        <label class="check"><input type="checkbox" id="bulkFlatten" /> Flatten (stamp can't be moved in a PDF reader)</label>
+        <button class="btn btn-ghost btn-block" id="bulkPreviewBtn" type="button">Preview all pages</button>
+        <button class="btn btn-primary btn-block" id="bulkRunBtn" type="button">Stamp all files</button>
+      </div>
+    </aside>
+
+    <section class="content bulk-main">
+      <div id="bulkEmpty" class="dropzone bulk-empty">
+        <div class="dropzone-inner">
+          <div class="empty-art">🗂️</div>
+          <h3>Stamp many PDFs in one go</h3>
+          <ol class="steps left">
+            <li><strong>Add PDF files</strong> on the left (drop a whole batch of bills).</li>
+            <li><strong>Pick the stamp</strong> and which pages to stamp.</li>
+            <li><strong>Place it once</strong> on the sample page that appears here.</li>
+            <li><strong>Smart placement</strong> finds the same spot on every other page and file.</li>
+            <li><strong>Preview</strong>, then <strong>Stamp all files</strong> — you get one ZIP.</li>
+          </ol>
+          <button class="btn btn-primary" id="bulkPick2" type="button">Choose PDF files</button>
+        </div>
+      </div>
+
+      <div id="bulkEditor" class="bulk-editor" hidden>
+        <div class="toolbar">
+          <div class="toolbar-group">
+            <span class="mini-label">Sample</span>
+            <select id="bulkSampleFile" class="select select-sm"></select>
+          </div>
+          <div class="toolbar-group">
+            <button class="icon-btn" id="bulkPrev" type="button" title="Previous page">‹</button>
+            <span class="page-indicator"><input id="bulkPageInput" type="number" min="1" value="1" /> / <span id="bulkPageTotal">1</span></span>
+            <button class="icon-btn" id="bulkNext" type="button" title="Next page">›</button>
+          </div>
+          <span class="hint tiny bulk-tip">Drag the stamp to where it should go — or click on the page to move it there.</span>
+        </div>
+        <div class="bulk-body">
+          <div class="canvas-scroll" id="bulkScroll">
+            <div class="page-stage" id="bulkStage">
+              <canvas id="bulkCanvas"></canvas>
+              <div class="overlay" id="bulkOverlay"></div>
+            </div>
+          </div>
+          <div class="inspector bulk-inspector">
+            <div class="unit-row">
+              <span class="mini-label">Position &amp; size</span>
+              <select id="bUnit" class="select select-sm"></select>
+            </div>
+            <div class="num-grid">
+              <label><span>X from left (<span class="bunit-label">mm</span>)</span><input type="number" id="bX" /></label>
+              <label><span>Y from top (<span class="bunit-label">mm</span>)</span><input type="number" id="bY" /></label>
+              <label><span>Width (<span class="bunit-label">mm</span>)</span><input type="number" id="bW" min="1" /></label>
+              <label><span>Height (<span class="bunit-label">mm</span>)</span><input type="number" id="bH" min="1" /></label>
+            </div>
+            <label class="check"><input type="checkbox" id="bLock" checked /> Lock aspect ratio</label>
+            <div class="align-box">
+              <span class="mini-label">Align on page</span>
+              <div class="align-row">
+                <div class="align-grid" id="bAlignGrid"></div>
+                <div class="align-side">
+                  <label class="margin-field"><span>Margin (<span class="bunit-label">mm</span>)</span><input type="number" id="bMargin" min="0" /></label>
+                </div>
+              </div>
+            </div>
+            <p class="hint tiny">Corners resize; the side handles stretch only width or height.</p>
+          </div>
+        </div>
+
+        <div id="bulkResults" class="bulk-results" hidden>
+          <div class="results-head">
+            <h3 id="bulkResultsTitle">Preview</h3>
+            <div id="bulkResultsActions" class="results-actions"></div>
+          </div>
+          <div id="bulkSummary" class="bulk-summary"></div>
+          <div id="bulkGrid" class="bulk-grid"></div>
         </div>
       </div>
     </section>
@@ -227,7 +401,9 @@
     <ol class="steps">
       <li><strong>Everything runs in this browser.</strong> No account, no server, no API key, no subscription. Your stamps and documents never leave this computer.</li>
       <li><strong>Add a company</strong>, then upload a photo or scan of your stamp or signature. The white paper is removed automatically, leaving only the ink.</li>
-      <li><strong>Open a PDF</strong> and drag the stamp exactly where it belongs. Resize, rotate, set opacity, or type exact coordinates.</li>
+      <li><strong>Open a PDF</strong> and drag the stamp exactly where it belongs. Resize from the corners or the side handles, rotate, set opacity, align to the page, or type exact sizes in mm, cm, inches or points.</li>
+      <li><strong>Bulk Stamp</strong> stamps many PDFs at once: place the stamp once, and smart placement finds the same spot (e.g. next to “Authorised Signatory”) on every page and file.</li>
+      <li><strong>Edit a stamp</strong> any time from the library — rename it, move it to another company, replace the image, rotate, trim or darken the ink.</li>
       <li><strong>Export</strong> — the stamped PDF is built here and downloads straight to your computer.</li>
       <li><strong>Take a backup</strong> from the History tab so you can move your library to another computer.</li>
     </ol>
@@ -262,24 +438,55 @@
   </form>
 </dialog>
 
-<dialog id="assetDialog" class="dialog">
+<dialog id="assetDialog" class="dialog dialog-wide">
   <form id="assetForm">
-    <h3>Upload stamp / signature</h3>
-    <div class="upload-drop" id="assetDrop">
-      <img id="assetPreview" alt="" hidden />
-      <div id="assetDropText">
-        <strong>Drop an image here</strong>
-        <span class="hint">PNG, JPG or WEBP · photo of a stamp on white paper works fine</span>
+    <h3 id="assetDialogTitle">Upload stamp / signature</h3>
+    <div class="asset-edit-grid">
+      <div>
+        <div class="upload-drop" id="assetDrop" title="Click or drop an image">
+          <img id="assetPreview" alt="" hidden />
+          <div id="assetDropText">
+            <strong id="assetDropLabel">Drop an image here</strong>
+            <span class="hint">PNG, JPG or WEBP · photo of a stamp on white paper works fine</span>
+          </div>
+          <input id="assetFile" type="file" accept="image/*" hidden />
+        </div>
+        <p class="hint tiny center" id="assetReplaceHint" hidden>Click the picture (or drop a file on it) to replace the image.</p>
+        <div class="edit-tools" id="assetTools" hidden>
+          <span class="mini-label">Adjust image</span>
+          <div class="tool-row">
+            <button type="button" class="btn btn-ghost btn-sm" data-tool="rotl" title="Rotate left">⟲ Left</button>
+            <button type="button" class="btn btn-ghost btn-sm" data-tool="rotr" title="Rotate right">⟳ Right</button>
+            <button type="button" class="btn btn-ghost btn-sm" data-tool="flip" title="Mirror">⇋ Flip</button>
+            <button type="button" class="btn btn-ghost btn-sm" data-tool="trim" id="trimTool" title="Cut away empty space around the ink">✂ Trim</button>
+            <button type="button" class="btn btn-ghost btn-sm" data-tool="reset">Reset</button>
+          </div>
+          <label class="slider">Ink darkness <span id="inkVal">0%</span>
+            <input type="range" id="inkDark" min="0" max="100" step="5" value="0" />
+          </label>
+          <label class="inline-field">Ink colour
+            <select id="inkColor" class="select select-sm">
+              <option value="">Original</option>
+              <option value="#1f3fbf">Blue</option>
+              <option value="#111111">Black</option>
+              <option value="#b3261e">Red</option>
+              <option value="#6a1b9a">Violet</option>
+              <option value="#1e6b34">Green</option>
+            </select>
+          </label>
+        </div>
       </div>
-      <input id="assetFile" type="file" accept="image/*" hidden />
+      <div>
+        <div class="field"><label for="aName">Asset name</label><input id="aName" required maxlength="200" placeholder="e.g. Authorised Signatory — Director" /></div>
+        <div class="row">
+          <div class="field"><label for="aCompany">Company</label><select id="aCompany" class="select"></select></div>
+          <div class="field"><label for="aCategory">Category</label><select id="aCategory" class="select"></select></div>
+        </div>
+        <div class="field"><label for="aDesc">Description (optional)</label><input id="aDesc" maxlength="2000" /></div>
+        <label class="check"><input type="checkbox" id="aStrip" checked /> <span id="aStripLabel">Remove the paper background automatically</span></label>
+        <p class="hint tiny" id="assetSizeInfo"></p>
+      </div>
     </div>
-    <div class="field"><label for="aName">Asset name</label><input id="aName" required maxlength="200" placeholder="e.g. Authorised Signatory — Director" /></div>
-    <div class="row">
-      <div class="field"><label for="aCompany">Company</label><select id="aCompany" class="select"></select></div>
-      <div class="field"><label for="aCategory">Category</label><select id="aCategory" class="select"></select></div>
-    </div>
-    <div class="field"><label for="aDesc">Description (optional)</label><input id="aDesc" maxlength="2000" /></div>
-    <label class="check"><input type="checkbox" id="aStrip" checked /> Remove the paper background automatically</label>
     <div class="dialog-actions">
       <button class="btn btn-ghost" type="button" data-close>Cancel</button>
       <button class="btn btn-primary" type="submit" id="assetSave">Save asset</button>

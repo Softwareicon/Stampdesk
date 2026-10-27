@@ -7,6 +7,18 @@ a PDF, and download the stamped file.
 library, the PDF preview and the PDF writing — happens inside your browser. Your
 stamps and documents never leave your computer.
 
+
+## New in this version
+
+- **Edit any stamp** — *Edit* on a stamp card changes its name, company, category and description, and lets you replace the image or adjust it (rotate, flip, trim empty edges, darken faint ink, recolour). *Replace image* jumps straight to picking a new file. Changes sync to the shared Google Sheet.
+- **Resize handles on all sides** — corners resize (keeping proportions when *Lock aspect ratio* is on); the middle handles on each side stretch only the width or only the height.
+- **Exact size and position** — X, Y, width and height in mm, cm, inches or points; a 9-point *Align on page* grid with a margin; nudge buttons; *Restore original proportions*.
+- **Bulk Stamp (smart placement)** — add many PDFs, pick the stamp and pages, place it once on a sample page.
+  - *Smart placement* reads the PDF text, finds the anchor (e.g. “Authorised Signatory” — *✨ Detect* suggests it) on every page and keeps the stamp at exactly the same distance from it, even when it moves between bills or pages. Pages without the text are skipped (or use the fixed position — your choice).
+  - *Same position* puts the stamp at the same spot on every page, measured from the nearest page edges so A4 and Letter both line up.
+  - *Preview all pages* shows every stamped page first; *Stamp all files* downloads one ZIP and keeps each file in History.
+  - Smart placement needs PDFs with real text (as exported by Tally, Busy, Excel, Word…). Scanned image-only PDFs have no text to read — use *Same position* for those.
+
 ---
 
 ## Run it
