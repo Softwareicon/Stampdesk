@@ -18,7 +18,7 @@ export async function loadImage(blobOrFile) {
   }
 }
 
-function toCanvas(img) {
+export function toCanvas(img) {
   let { naturalWidth: w, naturalHeight: h } = img;
   const scale = Math.min(1, MAX_SIDE / Math.max(w, h));
   w = Math.round(w * scale); h = Math.round(h * scale);
@@ -139,4 +139,80 @@ export async function renderPlacementImage(blob, { rotation = 0, opacity = 1, ta
   ctx.drawImage(base, -w / 2, -h / 2, w, h);
 
   return { blob: await canvasToBlob(out), width: out.width, height: out.height };
+}
+
+// ------------------------------------------------------------- edit tools
+/** Copy onto white paper, so a transparent PNG can go through removeBackground again. */
+export function onWhite(canvas) {
+  const out = document.createElement("canvas");
+  out.width = canvas.width; out.height = canvas.height;
+  const ctx = out.getContext("2d");
+  ctx.fillStyle = "#fff";
+  ctx.fillRect(0, 0, out.width, out.height);
+  ctx.drawImage(canvas, 0, 0);
+  return out;
+}
+
+function trimTransparent(canvas) {
+  const ctx = canvas.getContext("2d", { willReadFrequently: true });
+  const { data, width, height } = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  let minX = width, minY = height, maxX = -1, maxY = -1;
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      if (data[(y * width + x) * 4 + 3] > 12) {
+        if (x < minX) minX = x; if (x > maxX) maxX = x;
+        if (y < minY) minY = y; if (y > maxY) maxY = y;
+      }
+    }
+  }
+  if (maxX < 0) return canvas;
+  const pad = 2;
+  minX = Math.max(0, minX - pad); minY = Math.max(0, minY - pad);
+  maxX = Math.min(width - 1, maxX + pad); maxY = Math.min(height - 1, maxY + pad);
+  const out = document.createElement("canvas");
+  out.width = maxX - minX + 1; out.height = maxY - minY + 1;
+  out.getContext("2d").drawImage(canvas, minX, minY, out.width, out.height, 0, 0, out.width, out.height);
+  return out;
+}
+
+const hexToRgb = (hex) => {
+  const n = parseInt(hex.replace("#", ""), 16);
+  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+};
+
+/**
+ * Non-destructive edits for a stamp image.
+ * ops: { rotate: 0|90|180|270, flip: bool, darkness: 0..100, color: "" | "#rrggbb", trim: bool }
+ */
+export function adjustImage(source, ops = {}) {
+  const rotate = ((ops.rotate || 0) % 360 + 360) % 360;
+  const swap = rotate === 90 || rotate === 270;
+  let out = document.createElement("canvas");
+  out.width = swap ? source.height : source.width;
+  out.height = swap ? source.width : source.height;
+  let ctx = out.getContext("2d", { willReadFrequently: true });
+  ctx.translate(out.width / 2, out.height / 2);
+  ctx.rotate((rotate * Math.PI) / 180);
+  if (ops.flip) ctx.scale(-1, 1);
+  ctx.drawImage(source, -source.width / 2, -source.height / 2);
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+
+  const dark = Math.max(0, Math.min(100, ops.darkness || 0)) / 100;
+  if (dark > 0 || ops.color) {
+    const img = ctx.getImageData(0, 0, out.width, out.height);
+    const px = img.data;
+    const tint = ops.color ? hexToRgb(ops.color) : null;
+    for (let i = 0; i < px.length; i += 4) {
+      if (px[i + 3] === 0) continue;
+      if (tint) { px[i] = tint[0]; px[i + 1] = tint[1]; px[i + 2] = tint[2]; }
+      if (dark > 0) {
+        const keep = 1 - dark * 0.55;                       // deepen the ink colour
+        px[i] *= keep; px[i + 1] *= keep; px[i + 2] *= keep;
+        px[i + 3] = Math.min(255, px[i + 3] * (1 + dark * 2.2)); // and fill faint strokes
+      }
+    }
+    ctx.putImageData(img, 0, 0);
+  }
+  if (ops.trim) out = trimTransparent(out);
+  return out;
 }

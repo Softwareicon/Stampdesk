@@ -1,7 +1,7 @@
 // Tab 1 — company stamp & signature library (stored locally).
 import { CATEGORIES } from "./config.js";
 import { store } from "./db.js";
-import { prepareAsset, removeBackground, loadImage, canvasToBlob } from "./imaging.js";
+import { adjustImage, canvasToBlob, hasAlpha, loadImage, onWhite, removeBackground, toCanvas } from "./imaging.js";
 import { assetById, assetUrl, forget, newId, now, refresh, state } from "./store.js";
 import { $, $$, confirmDialog, debounce, el, fmt, toast, withBusy } from "./ui.js";
 
@@ -117,26 +117,15 @@ export function renderAssets() {
         ]),
       ]),
       el("div", { class: "asset-actions" }, [
-        el("button", { text: "Rename", onclick: () => renameAsset(asset.id) }),
+        el("button", { class: "primary-action", text: "Edit", title: "Change name, company, category or adjust the image", onclick: () => editAsset(asset.id) }),
+        el("button", { text: "Replace image", onclick: () => editAsset(asset.id, { pickFile: true }) }),
         el("button", { text: "Remove background", onclick: () => stripBackground(asset.id) }),
-        el("button", { text: "Replace", onclick: () => replaceAsset(asset.id) }),
         el("button", { text: "Download", onclick: () => downloadAsset(asset.id) }),
         el("button", { class: "danger", text: "Delete", onclick: () => deleteAsset(asset.id) }),
       ]),
     ]));
   }
   onChanged();
-}
-
-async function renameAsset(id) {
-  const asset = assetById(id);
-  const name = prompt("Asset name", asset.name);
-  if (name === null) return;
-  if (!name.trim()) return toast("Name cannot be empty.", "error");
-  await withBusy("Saving…", () => store.put("assets", { ...asset, name: name.trim(), updatedAt: now() }));
-  await refresh("assets");
-  renderAssets();
-  toast("Renamed.", "success");
 }
 
 async function stripBackground(id) {
@@ -149,7 +138,7 @@ async function stripBackground(id) {
     const canvas = document.createElement("canvas");
     canvas.width = img.naturalWidth; canvas.height = img.naturalHeight;
     canvas.getContext("2d").drawImage(img, 0, 0);
-    const cut = removeBackground(canvas);
+    const cut = removeBackground(onWhite(canvas));
     const blob = await canvasToBlob(cut);
     await store.put("assets", {
       ...asset,
@@ -161,32 +150,6 @@ async function stripBackground(id) {
     await refresh("assets");
     renderCompanies(); renderAssets();
     toast("Transparent copy created.", "success");
-  });
-}
-
-function pickFile(accept = "image/*") {
-  return new Promise((resolve) => {
-    const input = el("input", { type: "file", accept, hidden: true });
-    input.addEventListener("change", () => { resolve(input.files[0] || null); input.remove(); }, { once: true });
-    document.body.append(input);
-    input.click();
-  });
-}
-
-async function replaceAsset(id) {
-  const file = await pickFile();
-  if (!file) return;
-  const asset = assetById(id);
-  await withBusy("Replacing image…", async () => {
-    const prepared = await prepareAsset(file);
-    forget(`asset:${asset.id}:${asset.updatedAt}`);
-    await store.put("assets", {
-      ...asset, blob: prepared.blob, width: prepared.width, height: prepared.height,
-      hasAlpha: prepared.hasAlpha, size: prepared.blob.size, updatedAt: now(),
-    });
-    await refresh("assets");
-    renderAssets();
-    toast("Image replaced.", "success");
   });
 }
 
@@ -206,64 +169,176 @@ async function deleteAsset(id) {
   toast("Asset deleted.", "success");
 }
 
-// ------------------------------------------------------------ upload dialog
+// --------------------------------------------------- upload / edit dialog
+let openAssetEditor = () => {};
+function editAsset(id, opts = {}) { openAssetEditor(assetById(id), opts); }
+
 function setupAssetDialog() {
   const dlg = $("#assetDialog");
   const drop = $("#assetDrop");
   const input = $("#assetFile");
   const preview = $("#assetPreview");
-  let chosen = null;
+  const freshOps = () => ({ rotate: 0, flip: false, trim: false, darkness: 0, color: "" });
 
-  const show = (file) => {
-    chosen = file;
-    preview.hidden = !file;
-    $("#assetDropText").hidden = !!file;
-    if (file) {
-      preview.src = URL.createObjectURL(file);
-      if (!$("#aName").value.trim()) $("#aName").value = file.name.replace(/\.[^.]+$/, "");
+  let editing = null;     // asset being edited, or null for a new upload
+  let chosen = null;      // newly picked image file
+  let base = null;        // canvas after background removal, before adjustments
+  let ops = freshOps();
+  let busyToken = 0;
+  let pending = Promise.resolve();   // image processing still running
+
+  const opsChanged = () => JSON.stringify(ops) !== JSON.stringify(freshOps());
+  const syncTools = () => {
+    $("#inkVal").textContent = `${ops.darkness}%`;
+    $("#inkDark").value = String(ops.darkness);
+    $("#inkColor").value = ops.color;
+    $("#trimTool").classList.toggle("is-on", ops.trim);
+  };
+
+  function renderPreview() {
+    if (!base) { preview.hidden = true; $("#assetDropText").hidden = false; $("#assetTools").hidden = true; return; }
+    const out = adjustImage(base, ops);
+    preview.src = out.toDataURL("image/png");
+    preview.hidden = false;
+    $("#assetDropText").hidden = true;
+    $("#assetTools").hidden = false;
+    $("#assetSizeInfo").textContent = `Image: ${out.width} × ${out.height} px`;
+  }
+
+  function rebuildBase() {
+    pending = doRebuild();
+    return pending;
+  }
+
+  async function doRebuild() {
+    const token = ++busyToken;
+    const source = chosen || editing?.blob;
+    if (!source) { base = null; renderPreview(); return; }
+    try {
+      const img = await loadImage(source);
+      let c = toCanvas(img);
+      if ($("#aStrip").checked) c = removeBackground(onWhite(c));
+      if (token !== busyToken) return;
+      base = c;
+      renderPreview();
+    } catch (err) {
+      toast(err.message, "error");
     }
+  }
+
+  const choose = (file) => {
+    if (!file) return;
+    chosen = file;
+    if (!$("#aName").value.trim()) $("#aName").value = file.name.replace(/\.[^.]+$/, "");
+    if (editing) $("#aStrip").checked = true;      // a new photo usually needs the paper removed
+    rebuildBase();
   };
 
   drop.addEventListener("click", () => input.click());
-  input.addEventListener("change", () => show(input.files[0] || null));
+  input.addEventListener("change", () => { choose(input.files[0] || null); input.value = ""; });
   ["dragenter", "dragover"].forEach((e) => drop.addEventListener(e, (ev) => { ev.preventDefault(); drop.classList.add("is-over"); }));
   ["dragleave", "drop"].forEach((e) => drop.addEventListener(e, () => drop.classList.remove("is-over")));
-  drop.addEventListener("drop", (ev) => { ev.preventDefault(); const f = ev.dataTransfer.files[0]; if (f) show(f); });
+  drop.addEventListener("drop", (ev) => { ev.preventDefault(); choose(ev.dataTransfer.files[0]); });
+  $("#aStrip").addEventListener("change", rebuildBase);
+
+  $$("[data-tool]", dlg).forEach((b) => b.addEventListener("click", () => {
+    const t = b.dataset.tool;
+    if (t === "rotl") ops.rotate = (ops.rotate + 270) % 360;
+    if (t === "rotr") ops.rotate = (ops.rotate + 90) % 360;
+    if (t === "flip") ops.flip = !ops.flip;
+    if (t === "trim") ops.trim = !ops.trim;
+    if (t === "reset") ops = freshOps();
+    syncTools(); renderPreview();
+  }));
+  $("#inkDark").addEventListener("input", (ev) => { ops.darkness = Number(ev.target.value); syncTools(); renderPreview(); });
+  $("#inkColor").addEventListener("change", (ev) => { ops.color = ev.target.value; renderPreview(); });
+
   $$("[data-close]", dlg).forEach((b) => b.addEventListener("click", () => dlg.close()));
+  dlg.addEventListener("close", () => {
+    editing = null; chosen = null; base = null; ops = freshOps(); busyToken++;
+    $("#assetForm").reset();
+    preview.hidden = true; preview.removeAttribute("src");
+    $("#assetDropText").hidden = false;
+    $("#assetTools").hidden = true;
+    $("#assetSizeInfo").textContent = "";
+  });
 
   $("#assetForm").addEventListener("submit", async (ev) => {
     ev.preventDefault();
-    if (!chosen) return toast("Choose an image first.", "error");
+    await pending;
+    if (!base) return toast("Choose an image first.", "error");
     const companyId = $("#aCompany").value;
     if (!companyId) return toast("Create a company first.", "error");
 
-    await withBusy("Saving asset…", async () => {
-      const prepared = await prepareAsset(chosen, { strip: $("#aStrip").checked });
-      await store.put("assets", {
-        id: newId(), companyId,
-        name: $("#aName").value.trim().slice(0, 200) || "Untitled",
-        category: CATEGORIES.includes($("#aCategory").value) ? $("#aCategory").value : "Other",
-        description: $("#aDesc").value.trim().slice(0, 2000),
-        blob: prepared.blob, width: prepared.width, height: prepared.height,
-        hasAlpha: prepared.hasAlpha, size: prepared.blob.size,
-        originalName: chosen.name, createdAt: now(), updatedAt: now(),
-      });
+    const meta = {
+      companyId,
+      name: $("#aName").value.trim().slice(0, 200) || "Untitled",
+      category: CATEGORIES.includes($("#aCategory").value) ? $("#aCategory").value : "Other",
+      description: $("#aDesc").value.trim().slice(0, 2000),
+    };
+    const imageChanged = !editing || chosen || $("#aStrip").checked || opsChanged();
+
+    await withBusy(editing ? "Saving changes…" : "Saving asset…", async () => {
+      let image = {};
+      if (imageChanged) {
+        const out = adjustImage(base, ops);
+        const blob = await canvasToBlob(out);
+        image = { blob, width: out.width, height: out.height, hasAlpha: hasAlpha(out), size: blob.size };
+      }
+      if (editing) {
+        forget(`asset:${editing.id}:${editing.updatedAt}`);
+        await store.put("assets", {
+          ...editing, ...meta, ...image,
+          ...(chosen ? { originalName: chosen.name } : {}),
+          updatedAt: now(),
+        });
+      } else {
+        await store.put("assets", {
+          id: newId(), ...meta, ...image,
+          originalName: chosen?.name || "", createdAt: now(), updatedAt: now(),
+        });
+      }
+      const wasEditing = Boolean(editing);
       dlg.close();
-      show(null);
-      $("#assetForm").reset();
-      $("#aStrip").checked = true;
       await refresh("assets");
       renderCompanies(); renderAssets();
-      toast("Asset saved to the library.", "success");
+      toast(wasEditing ? "Stamp updated." : "Asset saved to the library.", "success");
     });
   });
+
+  openAssetEditor = (asset, { pickFile = false } = {}) => {
+    if (!asset) return;
+    editing = asset;
+    $("#assetDialogTitle").textContent = "Edit stamp / signature";
+    $("#assetSave").textContent = "Save changes";
+    $("#assetDropLabel").textContent = "Drop a new image here";
+    $("#assetReplaceHint").hidden = false;
+    $("#aStripLabel").textContent = "Remove the paper background (again)";
+    $("#aName").value = asset.name;
+    $("#aCompany").value = asset.companyId;
+    $("#aCategory").value = asset.category;
+    $("#aDesc").value = asset.description || "";
+    $("#aStrip").checked = false;
+    syncTools();
+    dlg.showModal();
+    rebuildBase();
+    if (pickFile) input.click();
+  };
 
   return () => {
     if (!state.companies.length) {
       toast("Create a company first — assets are grouped per company.", "error");
       return companyDialog(null);
     }
+    editing = null;
+    $("#assetDialogTitle").textContent = "Upload stamp / signature";
+    $("#assetSave").textContent = "Save asset";
+    $("#assetDropLabel").textContent = "Drop an image here";
+    $("#assetReplaceHint").hidden = true;
+    $("#aStripLabel").textContent = "Remove the paper background automatically";
+    $("#aStrip").checked = true;
     $("#aCompany").value = state.activeCompanyId || state.companies[0].id;
+    syncTools();
     dlg.showModal();
   };
 }
